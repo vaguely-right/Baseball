@@ -25,6 +25,8 @@ os.rename(indir+'\\'+year+'games.txt',year+'games.txt')
 os.rename(indir+'\\'+year+'events.txt',year+'events.txt')
 
 
+#NOTE: There is something wrong with the file 1993BAL.EVA
+#This file seems to be corrupt in both the 1990seve.zip and 1993eve.zip downloads
 #%%
 gmfile = '2018games.txt'
 evfile = '2018events.txt'
