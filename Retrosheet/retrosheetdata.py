@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
 
+
 #%%
 year = '2018'
-gmfile = year+'games.txt'
-evfile = year+'events.txt'
+gmfile = 'Data\\'+year+'games.txt'
+evfile = 'Data\\'+year+'events.txt'
 
 gm = pd.read_csv(gmfile)
 ev = pd.read_csv(evfile)
@@ -39,19 +40,27 @@ eventdict = {0 : 'UNKNOWN',
              17 : 'OTHER',
              18 : 'OTHER',
              19 : 'BIPOUT',
-             20 : '1B',
-             21 : '2B',
-             22 : '3B',
+             20 : 'SNGL',
+             21 : 'DBL',
+             22 : 'TRPL',
              23 : 'HR',
              24 : 'NOBAT'}
 
 eventdf = pd.DataFrame.from_dict(eventdict,orient='index')
 eventdf.columns=['event']
 
+#Assign event abbreviations to every event
 ev = ev.merge(eventdf,how='left',left_on='eventtype',right_index=True)
 
-pd.pivot_table(ev[['batter','event']],index=['batter'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+#Specify sacrifice hit and fly events
+ev.event[ev.shflag=='T'] = 'SH'
+ev.event[ev.sfflag=='T'] = 'SF'
 
+df = pd.pivot_table(ev[['batter','event']],index=['batter'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+
+df = df[df.All >= 100]
+
+df['WOBA'] = (0.69*df.BB + 0.72*df.HBP + 0.89*df.SNGL + 1.27*df.DBL + 1.62*df.TRPL + 2.10*df.HR) / (df.All - df.IBB - df.OTHER)
 #%%
          Code Meaning
 
