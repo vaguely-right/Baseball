@@ -72,9 +72,10 @@ df['AB'] = df.PA-df.UBB-df.HBP-df.IBB-df.SH-df.SF
 df = df[['ID','Name','PA','AB','SNGL','DBL','TRPL','HR','UBB','IBB','HBP','K','SF','SH','BIPOUT','OTHER']]
 df.sort_values('PA',ascending=False)
 
-
-df['WOBA'] = (0.690*df.UBB + 0.722*df.HBP + 0.89*df.SNGL + 1.27*df.DBL + 1.62*df.TRPL + 2.10*df.HR) / (df.AB + df.UBB + df.SF + df.HBP)
-df.sort_values('WOBA',ascending=False)
+df['BA'] = (df.SNGL+df.DBL+df.TRPL+df.HR)/df.AB
+df['OBP'] = (df.SNGL+df.DBL+df.TRPL+df.HR+df.UBB+df.IBB+df.HBP)/(df.AB+df.UBB+df.IBB+df.HBP+df.SF)
+df['WOBA'] = (0.69*df.UBB + 0.72*df.HBP + 0.89*df.SNGL + 1.27*df.DBL + 1.62*df.TRPL + 2.10*df.HR) / (df.AB + df.UBB + df.SF + df.HBP)
+df.sort_values('BA',ascending=False)
 
 
 
