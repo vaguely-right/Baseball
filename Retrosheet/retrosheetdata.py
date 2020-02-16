@@ -6,12 +6,16 @@ import numpy as np
 year = '2018'
 gmfile = 'Data\\'+year+'games.txt'
 evfile = 'Data\\'+year+'events.txt'
+idfile = 'retroID.csv'
 
 gm = pd.read_csv(gmfile)
 ev = pd.read_csv(evfile)
+pid = pd.read_csv(idfile,index_col=False)
+pid['Name'] = pid.First+' '+pid.Last
 
 gm.head()
 ev.head()
+pid.head()
 
 #Get the gamesite from the game dataframe
 ev = ev.merge(gm[['gameid','gamesite']],how='left',on='gameid')
@@ -34,7 +38,7 @@ eventdict = {0 : 'UNKNOWN',
              11 : 'NOBAT',
              12 : 'NOBAT',
              13 : 'NOBAT',
-             14 : 'BB',
+             14 : 'UBB',
              15 : 'IBB',
              16 : 'HBP',
              17 : 'OTHER',
@@ -56,11 +60,25 @@ ev = ev.merge(eventdf,how='left',left_on='eventtype',right_index=True)
 ev.event[ev.shflag=='T'] = 'SH'
 ev.event[ev.sfflag=='T'] = 'SF'
 
+#%%
+#Calculate things like PA, AB, WOBA, from the raw stats
 df = pd.pivot_table(ev[['batter','event']],index=['batter'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+df = df[:-1]
+df = df.merge(pid[['ID','Name']],how='left',left_on='batter',right_on='ID')
+df = df[df.All>=100]
+df = df.rename(columns={'All':'PA'})
 
-df = df[df.All >= 100]
+df['AB'] = df.PA-df.UBB-df.HBP-df.IBB-df.SH-df.SF
+df = df[['ID','Name','PA','AB','SNGL','DBL','TRPL','HR','UBB','IBB','HBP','K','SF','SH','BIPOUT','OTHER']]
+df.sort_values('PA',ascending=False)
 
-df['WOBA'] = (0.69*df.BB + 0.72*df.HBP + 0.89*df.SNGL + 1.27*df.DBL + 1.62*df.TRPL + 2.10*df.HR) / (df.All - df.IBB - df.OTHER)
+
+df['WOBA'] = (0.690*df.UBB + 0.722*df.HBP + 0.89*df.SNGL + 1.27*df.DBL + 1.62*df.TRPL + 2.10*df.HR) / (df.AB + df.UBB + df.SF + df.HBP)
+df.sort_values('WOBA',ascending=False)
+
+
+
+
 #%%
          Code Meaning
 
