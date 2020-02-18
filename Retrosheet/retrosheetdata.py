@@ -77,6 +77,7 @@ df['OBP'] = (df.SNGL+df.DBL+df.TRPL+df.HR+df.UBB+df.IBB+df.HBP)/(df.AB+df.UBB+df
 df['WOBA'] = (0.69*df.UBB + 0.72*df.HBP + 0.89*df.SNGL + 1.27*df.DBL + 1.62*df.TRPL + 2.10*df.HR) / (df.AB + df.UBB + df.SF + df.HBP)
 df.sort_values('BA',ascending=False)
 
+
 #%%
 #Get some percentages
 pct = df[['ID','Name']]
@@ -85,8 +86,10 @@ pct['DBL'] = df.DBL/df.PA
 pct['TRPL'] = df.TRPL/df.PA
 pct['HR'] = df.HR/df.PA
 pct['BB'] = (df.UBB+df.IBB)/df.PA
+pct['HBP'] = df.HBP/df.PA
 pct['K'] = df.K/df.PA
-pct['BIPOUT'] = df.BIPOUT/df.PA
+pct['BIPOUT'] = (df.BIPOUT+df.SF)/df.PA
+ev.event.value_counts(normalize=True)
 
 #%%
          Code Meaning
