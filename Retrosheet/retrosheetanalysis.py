@@ -91,5 +91,56 @@ for year in tqdm(range(1970,2020)):
     df.index = [year]
     allevpct.append(df)
 evpct = pd.concat(allevpct)
+evpct['AVG'] = (evpct.SNGL+evpct.XBH+evpct.HR)/(evpct.SNGL+evpct.XBH+evpct.HR+evpct.K+evpct.BIPOUT)
+evpct['OBP'] = (evpct.SNGL+evpct.XBH+evpct.HR+evpct.BB)/(evpct.SNGL+evpct.XBH+evpct.HR+evpct.K+evpct.BIPOUT+evpct.BB)
+
+#%%
+#Get the data for each batter
+bat = pd.pivot_table(ev[['batter','event']],index=['batter'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+bat = bat[:-1]
+bat = bat.rename(columns={'All':'PA'})
+bat = bat[bat.PA>=100]
+bat = bat.merge(pid[['ID','Name']],how='left',left_on='batter',right_on='ID')
+bat = bat[['ID','Name','PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+bat.SNGL = bat.SNGL/bat.PA
+bat.XBH = bat.XBH/bat.PA
+bat.HR = bat.HR/bat.PA
+bat.BB = bat.BB/bat.PA
+bat.K = bat.K/bat.PA
+bat.BIPOUT = bat.BIPOUT/bat.PA
+bat.OTHER = bat.OTHER/bat.PA
+
+#%%
+#Get the data for each pitcher
+pit = pd.pivot_table(ev[['pitcher','event']],index=['pitcher'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+pit = pit[:-1]
+pit = pit.rename(columns={'All':'PA'})
+pit = pit[pit.PA>=100]
+pit = pit.merge(pid[['ID','Name']],how='left',left_on='pitcher',right_on='ID')
+pit = pit[['ID','Name','PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+pit.SNGL = pit.SNGL/pit.PA
+pit.XBH = pit.XBH/pit.PA
+pit.HR = pit.HR/pit.PA
+pit.BB = pit.BB/pit.PA
+pit.K = pit.K/pit.PA
+pit.BIPOUT = pit.BIPOUT/pit.PA
+pit.OTHER = pit.OTHER/pit.PA
+
+#%%
+#Get the data for each stadium
+site = pd.pivot_table(ev[['gamesite','event']],index=['gamesite'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+site = site[:-1]
+site = site.rename(columns={'All':'PA'})
+site = site[site.PA>=100]
+site = site.merge(pid[['ID','Name']],how='left',left_on='gamesite',right_on='ID')
+site = site[['ID','Name','PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+site.SNGL = site.SNGL/site.PA
+site.XBH = site.XBH/site.PA
+site.HR = site.HR/site.PA
+site.BB = site.BB/site.PA
+site.K = site.K/site.PA
+site.BIPOUT = site.BIPOUT/site.PA
+site.OTHER = site.OTHER/site.PA
+
 
 
