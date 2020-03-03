@@ -63,7 +63,7 @@ def get_events(year):
                  12 : 'NOBAT',
                  13 : 'NOBAT',
                  14 : 'BB',
-                 15 : 'BB',
+                 15 : 'OTHER',
                  16 : 'BB',
                  17 : 'OTHER',
                  18 : 'OTHER',
@@ -81,6 +81,29 @@ def get_events(year):
     ev.event[ev.shflag=='T'] = 'OTHER'
     ev.event[ev.sfflag=='T'] = 'BIPOUT'
     return ev
+
+def pivot_events(year,split,minpa=0):
+    if split not in ['batter','pitcher','gamesite','batterhand','pitcherhand',['pitcherhand','batterhand']]:
+        print('Invalid split index')
+        print('Currently supported: batter, pitcher, gamesite, batterhand, pitcherhand')
+        return
+    ev = get_events(year)
+    ptable = pd.pivot_table(ev[[split,'event']],index=[split],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+    ptable = ptable[:-1]
+    ptable = ptable.rename(columns={'All':'PA'})
+    ptable = ptable[['PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+    ptable.SNGL = ptable.SNGL/ptable.PA
+    ptable.XBH = ptable.XBH/ptable.PA
+    ptable.HR = ptable.HR/ptable.PA
+    ptable.BB = ptable.BB/ptable.PA
+    ptable.K = ptable.K/ptable.PA
+    ptable.BIPOUT = ptable.BIPOUT/ptable.PA
+    ptable.OTHER = ptable.OTHER/ptable.PA
+    ptable['AVG'] = (ptable.SNGL+ptable.XBH+ptable.HR)/(ptable.SNGL+ptable.XBH+ptable.HR+ptable.K+ptable.BIPOUT)
+    ptable['OBP'] = (ptable.SNGL+ptable.XBH+ptable.HR+ptable.BB)/(ptable.SNGL+ptable.XBH+ptable.HR+ptable.K+ptable.BIPOUT+ptable.BB)
+    ptable['WOBA'] = (ptable.SNGL*0.89+ptable.XBH*1.31+ptable.HR*2.10+ptable.BB*0.70)/(1-ptable.OTHER)
+    ptable['FIP'] = (ptable.HR*13+ptable.BB*3-ptable.K*2)/(ptable.K+ptable.BIPOUT)*3+3.05
+    return ptable
 
 #%%
 #Get the percentages for every year
@@ -163,18 +186,68 @@ site['AVG'] = (site.SNGL+site.XBH+site.HR)/(site.SNGL+site.XBH+site.HR+site.K+si
 site['OBP'] = (site.SNGL+site.XBH+site.HR+site.BB)/(site.SNGL+site.XBH+site.HR+site.K+site.BIPOUT+site.BB)
 site['WOBA'] = (site.SNGL*0.89+site.XBH*1.31+site.HR*2.10+site.BB*0.70)/(1-site.OTHER)
 site['FIP'] = (site.HR*13+site.BB*3-site.K*2)/(site.K+site.BIPOUT)*3+3.05
+site.sort_values('FIP')
 
 #%%
 #To do: lefty/righty batters
+bhand = pd.pivot_table(ev[['batterhand','event']],index=['batterhand'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+bhand = bhand[:-1]
+bhand = bhand.rename(columns={'All':'PA'})
+bhand = bhand[['PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+bhand.SNGL = bhand.SNGL/bhand.PA
+bhand.XBH = bhand.XBH/bhand.PA
+bhand.HR = bhand.HR/bhand.PA
+bhand.BB = bhand.BB/bhand.PA
+bhand.K = bhand.K/bhand.PA
+bhand.BIPOUT = bhand.BIPOUT/bhand.PA
+bhand.OTHER = bhand.OTHER/bhand.PA
+bhand['AVG'] = (bhand.SNGL+bhand.XBH+bhand.HR)/(bhand.SNGL+bhand.XBH+bhand.HR+bhand.K+bhand.BIPOUT)
+bhand['OBP'] = (bhand.SNGL+bhand.XBH+bhand.HR+bhand.BB)/(bhand.SNGL+bhand.XBH+bhand.HR+bhand.K+bhand.BIPOUT+bhand.BB)
+bhand['WOBA'] = (bhand.SNGL*0.89+bhand.XBH*1.31+bhand.HR*2.10+bhand.BB*0.70)/(1-bhand.OTHER)
+bhand['FIP'] = (bhand.HR*13+bhand.BB*3-bhand.K*2)/(bhand.K+bhand.BIPOUT)*3+3.05
+bhand
 
 #%%
 #To do: lefty/righty pitchers
+phand = pd.pivot_table(ev[['batterhand','event']],index=['batterhand'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+phand = phand[:-1]
+phand = phand.rename(columns={'All':'PA'})
+phand = phand[['PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+phand.SNGL = phand.SNGL/phand.PA
+phand.XBH = phand.XBH/phand.PA
+phand.HR = phand.HR/phand.PA
+phand.BB = phand.BB/phand.PA
+phand.K = phand.K/phand.PA
+phand.BIPOUT = phand.BIPOUT/phand.PA
+phand.OTHER = phand.OTHER/phand.PA
+phand['AVG'] = (phand.SNGL+phand.XBH+phand.HR)/(phand.SNGL+phand.XBH+phand.HR+phand.K+phand.BIPOUT)
+phand['OBP'] = (phand.SNGL+phand.XBH+phand.HR+phand.BB)/(phand.SNGL+phand.XBH+phand.HR+phand.K+phand.BIPOUT+phand.BB)
+phand['WOBA'] = (phand.SNGL*0.89+phand.XBH*1.31+phand.HR*2.10+phand.BB*0.70)/(1-phand.OTHER)
+phand['FIP'] = (phand.HR*13+phand.BB*3-phand.K*2)/(phand.K+phand.BIPOUT)*3+3.05
+phand
 
 #%%
 #To do: LL/RR/LR/RL matchups
+pltn = pd.pivot_table(ev[['pitcherhand','batterhand','event']],index=['pitcherhand','batterhand'],columns=['event'],aggfunc=len,fill_value=0,margins=True)
+pltn = pltn[:-1]
+pltn = pltn.rename(columns={'All':'PA'})
+pltn = pltn[['PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+pltn.SNGL = pltn.SNGL/pltn.PA
+pltn.XBH = pltn.XBH/pltn.PA
+pltn.HR = pltn.HR/pltn.PA
+pltn.BB = pltn.BB/pltn.PA
+pltn.K = pltn.K/pltn.PA
+pltn.BIPOUT = pltn.BIPOUT/pltn.PA
+pltn.OTHER = pltn.OTHER/pltn.PA
+pltn['AVG'] = (pltn.SNGL+pltn.XBH+pltn.HR)/(pltn.SNGL+pltn.XBH+pltn.HR+pltn.K+pltn.BIPOUT)
+pltn['OBP'] = (pltn.SNGL+pltn.XBH+pltn.HR+pltn.BB)/(pltn.SNGL+pltn.XBH+pltn.HR+pltn.K+pltn.BIPOUT+pltn.BB)
+pltn['WOBA'] = (pltn.SNGL*0.89+pltn.XBH*1.31+pltn.HR*2.10+pltn.BB*0.70)/(1-pltn.OTHER)
+pltn['FIP'] = (pltn.HR*13+pltn.BB*3-pltn.K*2)/(pltn.K+pltn.BIPOUT)*3+3.05
+pltn[['AVG','OBP','WOBA','FIP']]
 
 #%%
 #To do: calculate times through the order for a pitcher
+
 
 #%%
 #To do: summarize by TTO
