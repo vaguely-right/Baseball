@@ -80,12 +80,15 @@ def get_events(year):
     #Specify sacrifice hit and fly events
     ev.event[ev.shflag=='T'] = 'OTHER'
     ev.event[ev.sfflag=='T'] = 'BIPOUT'
+    ev['timesthrough'] = ev.groupby(['gameid','pitcher']).cumcount()//9
+    ev.timesthrough.replace(3,2,inplace=True)
+    ev['pitbathand'] = ev.pitcherhand+ev.batterhand
     return ev
 
 def pivot_events(year,split,minpa=0):
-    if split not in ['batter','pitcher','gamesite','batterhand','pitcherhand',['pitcherhand','batterhand']]:
+    if split not in ['batter','pitcher','gamesite','batterhand','pitcherhand','timesthrough','pitbathand']:
         print('Invalid split index')
-        print('Currently supported: batter, pitcher, gamesite, batterhand, pitcherhand')
+        print('Currently supported: batter, pitcher, gamesite, batterhand, pitcherhand, pitbathand, timesthrough')
         return
     ev = get_events(year)
     ptable = pd.pivot_table(ev[[split,'event']],index=[split],columns=['event'],aggfunc=len,fill_value=0,margins=True)
@@ -247,7 +250,24 @@ pltn[['AVG','OBP','WOBA','FIP']]
 
 #%%
 #To do: calculate times through the order for a pitcher
+ev = get_events(2019)
+gameid = 'ANA201904040'
+gm = ev[ev.gameid==gameid]
+gm.groupby(['gameid','batter','pitcher']).size()
+#This is the cumulative times a pitcher has faced a batter in a game:
+gm.groupby(['gameid','batter','pitcher']).cumcount()
+#The problem with that is it doesn't account for pinch hitters
+#Just do a cumulative count for the total batters faced
+gm.groupby(['gameid','pitcher']).cumcount()
+#Times through the order is then:
+gm.groupby(['gameid','pitcher']).cumcount()//9
 
+#%%
+#EDIT: Changed the get_events function to calculate TTO and platoon
+tto = pivot_events(2019,'timesthrough')
+tto
+pltn = pivot_events(2019,'pitbathand')
+pltn
 
 #%%
 #To do: summarize by TTO
