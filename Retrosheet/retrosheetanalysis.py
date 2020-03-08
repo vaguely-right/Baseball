@@ -31,6 +31,12 @@ from tqdm import tqdm
           23   Home run
           24   Missing play
 #%%
+# Read the constants
+fg = pd.read_csv('fgconstants.csv')
+fg.set_index('Season',inplace=True)
+
+
+
 def get_events(year):
     if type(year)==int:
         year = str(year)
@@ -81,7 +87,7 @@ def get_events(year):
     ev.event[ev.shflag=='T'] = 'OTHER'
     ev.event[ev.sfflag=='T'] = 'BIPOUT'
     ev['timesthrough'] = ev.groupby(['gameid','pitcher']).cumcount()//9
-    ev.timesthrough.replace(3,2,inplace=True)
+#    ev.timesthrough.replace(3,2,inplace=True)
     ev['pitbathand'] = ev.pitcherhand+ev.batterhand
     return ev
 
@@ -121,6 +127,17 @@ evpct = evpct[['SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
 evpct['AVG'] = (evpct.SNGL+evpct.XBH+evpct.HR)/(evpct.SNGL+evpct.XBH+evpct.HR+evpct.K+evpct.BIPOUT)
 evpct['OBP'] = (evpct.SNGL+evpct.XBH+evpct.HR+evpct.BB)/(evpct.SNGL+evpct.XBH+evpct.HR+evpct.K+evpct.BIPOUT+evpct.BB)
 evpct['WOBA'] = (evpct.SNGL*0.89+evpct.XBH*1.31+evpct.HR*2.10+evpct.BB*0.70)/(1-evpct.OTHER)
+
+#%%
+# Maybe a more efficient way?
+allpct = []
+for year in tqdm(range(1970,2020)):
+    ev = get_events(year)
+    df = ev.groupby(['event']).size()/len(ev)
+    df.index = [year]
+    allpct.append(df)
+pbar = pd.concat(allpct)
+#Doesn't work, not really worth it
 
 #%%
 #Get the data for each batter
@@ -269,8 +286,16 @@ tto
 pltn = pivot_events(2019,'pitbathand')
 pltn
 
+#Look at some old timey times through stats
+
+tto = pivot_events(1973,'timesthrough')
+tto
+
 #%%
-#To do: summarize by TTO
+# Get the mean of every season
+
+
+
 
 
 
