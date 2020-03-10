@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
+pd.set_option('display.width',150)
+pd.set_option('display.max_columns',16)
 #%%
 # Read the constants
 fg = pd.read_csv('fgconstants.csv')
@@ -58,7 +60,7 @@ def get_events(year):
     ev.event[ev.shflag=='T'] = 'OTHER'
     ev.event[ev.sfflag=='T'] = 'BIPOUT'
     ev['timesthrough'] = ev.groupby(['gameid','pitcher']).cumcount()//9
-#    ev.timesthrough.replace(3,2,inplace=True)
+    ev.timesthrough[ev.timesthrough>2] = 2
     ev['pitbathand'] = ev.pitcherhand+ev.batterhand
     return ev
 
@@ -68,29 +70,35 @@ def pivot_events(year,split,minpa=0):
         print('Currently supported: batter, pitcher, gamesite, batterhand, pitcherhand, pitbathand, timesthrough')
         return
     ev = get_events(year)
+# New in this version: drop OTHER events
+    ev = ev[ev.event!='OTHER']
     ptable = pd.pivot_table(ev[[split,'event']],index=[split],columns=['event'],aggfunc=len,fill_value=0,margins=True)
     ptable = ptable[:-1]
     ptable = ptable.rename(columns={'All':'PA'})
-    ptable = ptable[['PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]
+#    ptable = ptable[['PA','SNGL','XBH','HR','BB','K','BIPOUT','OTHER']]    
+    ptable = ptable[['PA','SNGL','XBH','HR','BB','K','BIPOUT']]
     ptable.SNGL = ptable.SNGL/ptable.PA
     ptable.XBH = ptable.XBH/ptable.PA
     ptable.HR = ptable.HR/ptable.PA
     ptable.BB = ptable.BB/ptable.PA
     ptable.K = ptable.K/ptable.PA
     ptable.BIPOUT = ptable.BIPOUT/ptable.PA
-    ptable.OTHER = ptable.OTHER/ptable.PA
-    ptable['AVG'] = (ptable.SNGL+ptable.XBH+ptable.HR)/(ptable.SNGL+ptable.XBH+ptable.HR+ptable.K+ptable.BIPOUT)
-    ptable['OBP'] = (ptable.SNGL+ptable.XBH+ptable.HR+ptable.BB)/(ptable.SNGL+ptable.XBH+ptable.HR+ptable.K+ptable.BIPOUT+ptable.BB)
-    ptable['WOBA'] = (ptable.SNGL*0.89+ptable.XBH*1.31+ptable.HR*2.10+ptable.BB*0.70)/(1-ptable.OTHER)
-    ptable['FIP'] = (ptable.HR*13+ptable.BB*3-ptable.K*2)/(ptable.K+ptable.BIPOUT)*3+3.05
+    #    ptable.OTHER = ptable.OTHER/ptable.PA
+#    ptable['AVG'] = (ptable.SNGL+ptable.XBH+ptable.HR)/(ptable.SNGL+ptable.XBH+ptable.HR+ptable.K+ptable.BIPOUT)
+#    ptable['OBP'] = (ptable.SNGL+ptable.XBH+ptable.HR+ptable.BB)/(ptable.SNGL+ptable.XBH+ptable.HR+ptable.K+ptable.BIPOUT+ptable.BB)
+#    ptable['WOBA'] = (ptable.SNGL*0.89+ptable.XBH*1.31+ptable.HR*2.10+ptable.BB*0.70)/(1-ptable.OTHER)
+#    ptable['FIP'] = (ptable.HR*13+ptable.BB*3-ptable.K*2)/(ptable.K+ptable.BIPOUT)*3+3.05
     return ptable
 
 
 #%%
-    
-
-
-
+#
+ev = get_events(2019)
+ev = ev[ev.event!='OTHER']
+ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
+ev['ind'] = 1.0
+test = ev.pivot(columns='batter')
+test = test.fillna(0)
 
 
 

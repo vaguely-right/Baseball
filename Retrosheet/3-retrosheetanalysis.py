@@ -87,6 +87,7 @@ def get_events(year):
     ev.event[ev.shflag=='T'] = 'OTHER'
     ev.event[ev.sfflag=='T'] = 'BIPOUT'
     ev['timesthrough'] = ev.groupby(['gameid','pitcher']).cumcount()//9
+    ev.timesthrough[ev.timesthrough>2] = 2
 #    ev.timesthrough.replace(3,2,inplace=True)
     ev['pitbathand'] = ev.pitcherhand+ev.batterhand
     return ev
@@ -288,17 +289,19 @@ pltn
 
 #Look at some old timey times through stats
 
-tto = pivot_events(1973,'timesthrough')
+tto = pivot_events(1970,'timesthrough')
 tto
 
 #%%
-# Get the mean of every season
+# Look at historical times through the order (the 1970s were CRAZY)
+frames = []
+for year in tqdm(range(1970,2020)):
+    df = pivot_events(year,'timesthrough').FIP.to_frame().transpose()
+    df.index = [year]
+    frames.append(df)
 
-
-
-
-
-
+tto = pd.concat(frames)
+tto.transpose().plot.line()
 
 
 
