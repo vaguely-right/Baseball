@@ -92,13 +92,44 @@ def pivot_events(year,split,minpa=0):
 
 
 #%%
-#
-ev = get_events(2019)
+# Get the events for a specified year
+year = 2013
+ev = get_events(year)
 ev = ev[ev.event!='OTHER']
 ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
 ev['ind'] = 1.0
-test = ev.pivot(columns='batter')
-test = test.fillna(0)
+
+# Calculate the mean probabilities, ratios, and logratios
+pbar = ev.event.value_counts(normalize=True).to_frame().transpose()
+pbar = pbar[['SNGL','XBH','HR','BB','K','BIPOUT']]
+rbar = pbar / (1-pbar)
+logrbar = np.log(rbar)
+
+# Pivot to get the indicators
+xbatter = ev.pivot(columns='batter',values='ind').fillna(0)
+xpitcher = ev.pivot(columns='pitcher',values='ind').fillna(0)
+xgamesite = ev.pivot(columns='gamesite',values='ind').fillna(0)
+xtimesthrough = ev.pivot(columns='timesthrough',values='ind').fillna(0)
+xpitbathand = ev.pivot(columns='pitbathand',values='ind').fillna(0)
+
+# Concatenate the indicators for the array
+xtimesthrough.columns = pd.MultiIndex.from_product([['timesthrough'],xtimesthrough.columns])
+xpitbathand.columns = pd.MultiIndex.from_product([['pitbathand'],xpitbathand.columns])
+
+x = pd.concat([xtimesthrough,xpitbathand],axis=1)
+
+# Get the Y array (outcomes)
+yp = ev.pivot(columns='event',values='ind').fillna(0)
+yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
+yp = yp.replace(1,0.999)
+yp = yp.replace(0,0.001)
+yr = yp/(1-yp)
+ylogr = np.log(yr)
+y = np.subtract(ylogr,logrbar)
+
+
+
+
 
 
 
