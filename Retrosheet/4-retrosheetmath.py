@@ -168,6 +168,17 @@ phat = rhat/(1+rhat)
 phat['SUM'] = np.sum(phat,axis=1)
 phat.groupby('split').mean()
 
+np.mean(np.matmul(x['batter'].to_numpy(),phat.loc['batter'].to_numpy()),axis=0)
+pbar
+
+np.mean(np.matmul(x['pitcher'].to_numpy(),phat.loc['pitcher'].to_numpy()),axis=0)
+
+np.mean(np.matmul(x['gamesite'].to_numpy(),phat.loc['gamesite'].to_numpy()),axis=0)
+
+np.mean(np.matmul(x['timesthrough'].to_numpy(),phat.loc['timesthrough'].to_numpy()),axis=0)
+
+np.mean(np.matmul(x['pitbathand'].to_numpy(),phat.loc['pitbathand'].to_numpy()),axis=0)
+
 #Don't sum to 1.0; normalize for now
 #phat = np.divide(phat,np.sum(phat,axis=1).to_frame())
 
@@ -220,6 +231,72 @@ pit[pit.PA>=500].sort_values('FIP').head(10)
 pithat[pithat.PA>=500].sort_values('FIP').head(10)
 
 sns.scatterplot(x=pit[pit.PA>=500].FIP,y=pithat[pithat.PA>=500].FIP)
+
+
+#%%
+# Build a function to get all of the matrices for any specified year
+def por_analysis(year,alpha=0.001):
+    # Get the relevant events
+    ev = get_events(year)
+    ev = ev[ev.event!='OTHER']
+    ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
+    ev['ind'] = 1.0
+    # Calculate the mean probabilities, ratios, and logratios
+    pbar = ev.event.value_counts(normalize=True).to_frame().transpose()
+    pbar = pbar[['SNGL','XBH','HR','BB','K','BIPOUT']]
+    rbar = pbar / (1-pbar)
+    logrbar = np.log(rbar)
+    # Pivot to get the indicators
+    xbatter = ev.pivot(columns='batter',values='ind').fillna(0)
+    xpitcher = ev.pivot(columns='pitcher',values='ind').fillna(0)
+    xgamesite = ev.pivot(columns='gamesite',values='ind').fillna(0)
+    xtimesthrough = ev.pivot(columns='timesthrough',values='ind').fillna(0)
+    xpitbathand = ev.pivot(columns='pitbathand',values='ind').fillna(0)
+    # Concatenate the indicators for the array
+    xbatter.columns = pd.MultiIndex.from_product([['batter'],xbatter.columns])
+    xpitcher.columns = pd.MultiIndex.from_product([['pitcher'],xpitcher.columns])
+    xgamesite.columns = pd.MultiIndex.from_product([['gamesite'],xgamesite.columns])
+    xtimesthrough.columns = pd.MultiIndex.from_product([['timesthrough'],xtimesthrough.columns])
+    xpitbathand.columns = pd.MultiIndex.from_product([['pitbathand'],xpitbathand.columns])
+    x = pd.concat([xbatter,xpitcher,xgamesite,xtimesthrough,xpitbathand],axis=1)
+    x.columns.names=['split','ID']
+    # Get the Y array (outcomes)
+    yp = ev.pivot(columns='event',values='ind').fillna(0)
+    yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
+    yp = yp.replace(1,1-alpha)
+    yp = yp.replace(0,alpha/5)
+    yr = yp/(1-yp)
+    ylogr = np.log(yr)
+    y = np.subtract(ylogr,logrbar)
+    # Solve the system
+    bhat = pd.DataFrame(la.lstsq(np.matmul(x.transpose().to_numpy(),x.to_numpy()),np.matmul(x.transpose().to_numpy(),y.to_numpy()))[0])
+    bhat.index = x.columns
+    bhat.columns = y.columns
+    rhat = np.exp(np.add(bhat,logrbar))
+    phat = rhat/(1+rhat)
+    return x,y,pbar,phat
+
+
+#%%
+# Try the function out
+x,y,pbar,phat = por_analysis(2013,alpha=0.1)
+
+pd.DataFrame(np.matmul(x['batter'].to_numpy(),phat.loc['batter'].to_numpy()),columns=pbar.columns).mean()
+pbar
+
+pd.DataFrame(np.matmul(x['pitcher'].to_numpy(),phat.loc['pitcher'].to_numpy()),columns=pbar.columns).mean()
+
+pd.DataFrame(np.matmul(x['gamesite'].to_numpy(),phat.loc['gamesite'].to_numpy()),columns=pbar.columns).mean()
+
+pd.DataFrame(np.matmul(x['pitbathand'].to_numpy(),phat.loc['pitbathand'].to_numpy()),columns=pbar.columns).mean()
+
+
+
+
+
+
+
+
 
 
 
