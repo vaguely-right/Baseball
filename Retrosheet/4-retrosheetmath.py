@@ -180,7 +180,7 @@ np.mean(np.matmul(x['timesthrough'].to_numpy(),phat.loc['timesthrough'].to_numpy
 np.mean(np.matmul(x['pitbathand'].to_numpy(),phat.loc['pitbathand'].to_numpy()),axis=0)
 
 #Don't sum to 1.0; normalize for now
-#phat = np.divide(phat,np.sum(phat,axis=1).to_frame())
+phat = np.divide(phat,np.sum(phat,axis=1).to_frame())
 
 #%%
 # Get some of the real values to compare
@@ -231,6 +231,30 @@ pit[pit.PA>=500].sort_values('FIP').head(10)
 pithat[pithat.PA>=500].sort_values('FIP').head(10)
 
 sns.scatterplot(x=pit[pit.PA>=500].FIP,y=pithat[pithat.PA>=500].FIP)
+
+#%%
+# Stadiums
+site = pivot_events(year,'gamesite')
+idfile = 'parkcode.csv'
+pid = pd.read_csv(idfile,index_col=False)
+pid.set_index('PARKID',inplace=True)
+site = site.merge(pid[['NAME']],how='left',left_index=True,right_index=True)
+site = site[['NAME','SNGL','XBH','HR','BB','K','BIPOUT','WOBA','FIP']]
+
+sitehat = phat.loc['gamesite']
+c = fg.loc[year]
+sitehat['WOBA'] = sitehat.SNGL*c.w1B + sitehat.XBH*(c.w2B*0.9+c.w3B*0.1) + sitehat.HR*c.wHR + sitehat.BB*(c.wBB*0.9+c.wHBP*0.1)
+sitehat['FIP'] = (sitehat.HR*13+sitehat.BB*3-sitehat.K*2)/(sitehat.K+sitehat.BIPOUT)*3+c.cFIP
+sitehat = sitehat.merge(pid[['NAME']],how='left',left_index=True,right_index=True)
+sitehat = sitehat[['NAME','SNGL','XBH','HR','BB','K','BIPOUT','WOBA','FIP']]
+
+site.sort_values('FIP').head()
+sitehat.sort_values('FIP').head()
+
+sns.scatterplot(x=site.FIP,y=sitehat.FIP)
+sns.scatterplot(x=site.WOBA,y=sitehat.WOBA)
+sns.scatterplot(x=site.HR,y=sitehat.HR)
+sns.scatterplot(x=site.BIPOUT,y=sitehat.BIPOUT)
 
 
 #%%
