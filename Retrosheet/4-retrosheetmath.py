@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import numpy.linalg as la
 import seaborn as sns
+from sklearn import linear_model as lm
 
 pd.set_option('display.width',150)
 pd.set_option('display.max_columns',16)
@@ -100,6 +101,8 @@ def pivot_events(year,split,minpa=0):
 
 #%%
 # Get the events for a specified year
+cols = ['SNGL','XBH','HR','BB','K','BIPOUT']
+splits = ['batter','pitcher','gamesite','timesthrough','pitbathand']
 year = 2013
 ev = get_events(year)
 ev = ev[ev.event!='OTHER']
@@ -132,11 +135,32 @@ x.columns.names=['split','ID']
 # Get the Y array (outcomes)
 yp = ev.pivot(columns='event',values='ind').fillna(0)
 yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
-yp = yp.replace(1,0.999)
-yp = yp.replace(0,0.001)
+yp = yp.replace(1,0.99999)
+yp = yp.replace(0,0.000002)
 yr = yp/(1-yp)
 ylogr = np.log(yr)
 y = np.subtract(ylogr,logrbar)
+
+
+
+#%% Look at some variances etc
+ev.groupby('batter').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='batter',columns='event',values='frac').var()
+ev.groupby('batter').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='batter',columns='event',values='frac').hist()
+ev.groupby('pitcher').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='pitcher',columns='event',values='frac').hist()
+
+
+ev.groupby('batter').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='batter',columns='event',values='frac').std().to_frame().rename(columns={0:'batter'}).transpose()
+ev.groupby('pitcher').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='pitcher',columns='event',values='frac').std()
+ev.groupby('gamesite').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='gamesite',columns='event',values='frac').std()
+ev.groupby('timesthrough').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='timesthrough',columns='event',values='frac').std()
+ev.groupby('pitbathand').event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index='pitbathand',columns='event',values='frac').std()
+
+
+sd = []
+for s in splits:
+    sd.append(ev.groupby(s).event.value_counts(normalize=True).to_frame().rename(columns={'event':'frac'}).reset_index().pivot(index=s,columns='event',values='frac').std().to_frame().rename(columns={0:s}).transpose())
+
+pd.concat(sd)
 
 #%%
 # Try to solve the system using linear algebra
@@ -152,24 +176,87 @@ la.matrix_rank(lhs)
 # Rank deficient. Size is 1659, rank 1653.
 
 #%%
-#Try to solve the system
+#Try to solve the system using matrix math
 bhat = pd.DataFrame(la.lstsq(np.matmul(x.transpose().to_numpy(),x.to_numpy()),np.matmul(x.transpose().to_numpy(),y.to_numpy()))[0])
 bhat.index = x.columns
 bhat.columns = y.columns
 
 #Hey, that worked! And it looks like it may have found the pseudoinverse, saving me the trouble
 
+#%%
+# Try to solve the system using scikit-learn
+reg = lm.LinearRegression(fit_intercept=False)
+reg.fit(x.to_numpy(),y.to_numpy())
+
+bhat = pd.DataFrame(reg.coef_.transpose())
+bhat.index = x.columns
+bhat.columns = y.columns
+
+
+# WTF. Values are enormous. Problem with rank-deficient?
+
+
+#%%
+# Try ridge regression
+reg = lm.Ridge(alpha=100.0,fit_intercept=False)
+reg.fit(x.to_numpy(),y.to_numpy())
+
+bhat = pd.DataFrame(reg.coef_.transpose())
+bhat.index = x.columns
+bhat.columns = y.columns
+
+# Works to constrain the values, but same problem with unbalanced sums
+
+#%% Try lasso regression
+reg = lm.Lasso(alpha=0.1,fit_intercept=False)
+reg.fit(x.to_numpy(),y.to_numpy())
+
+bhat = pd.DataFrame(reg.coef_.transpose())
+bhat.index = x.columns
+bhat.columns = y.columns
+
+#%%
+# Look a the splits and histograms
+bhat.groupby('split').mean()
+bhat.groupby('split').std()
+bhat.loc['batter'].hist()
+bhat.loc['gamesite'].hist()
+bhat.loc['pitbathand'].hist()
+bhat.loc['pitcher'].hist()
+bhat.loc['timesthrough'].hist()
+
+#%%
+
 # Take the bhat estimate and put it back in probability space
 rhat = np.exp(np.add(bhat,logrbar))
 
+rhat.groupby('split').mean()
+
 # Okay, now get the original probabilities
 phat = rhat/(1+rhat)
+phat.groupby('split').mean()
+phat.loc['batter'].hist()
+phat.loc['pitcher'].hist()
+[phat.loc[s].hist() for s in splits]
 
 phat['SUM'] = np.sum(phat,axis=1)
 phat.groupby('split').mean()
 
+#%% Some checks
+
+a = []
+for s in splits:
+    a.append(x[s].dot(phat.loc[s]).mean())
+
+a
+
+x.dot(bhat).mean()
+x['batter'].dot(bhat.loc['batter']).mean()
+
 np.mean(np.matmul(x['batter'].to_numpy(),phat.loc['batter'].to_numpy()),axis=0)
-pbar
+x['batter'].dot(phat.loc['batter']).mean()
+x['pitcher'].dot(phat.loc['pitcher']).mean()
+x['pitbathand'].dot(phat.loc['pitbathand']).mean()
 
 np.mean(np.matmul(x['pitcher'].to_numpy(),phat.loc['pitcher'].to_numpy()),axis=0)
 
@@ -191,8 +278,9 @@ pid = pid[['ID','Name']]
 pid.set_index('ID',inplace=True)
 
 bat = pivot_events(year,'batter')
-bat = bat.merge(pid[['ID','Name']],how='left',left_on='batter',right_on='ID')
-bat = bat[['ID','Name','PA','SNGL','XBH','HR','BB','K','BIPOUT','AVG','OBP','WOBA','FIP']]
+#bat = bat.merge(pid[['Name']],how='left',left_on='batter',right_on='ID')
+bat = bat.merge(pid,left_index=True,right_index=True)
+bat = bat[['Name','PA','SNGL','XBH','HR','BB','K','BIPOUT','AVG','OBP','WOBA','FIP']]
 
 bathat = phat.loc['batter']
 bathat['AVG'] = (bathat.SNGL+bathat.XBH+bathat.HR)/(1-bathat.BB)
@@ -255,66 +343,6 @@ sns.scatterplot(x=site.FIP,y=sitehat.FIP)
 sns.scatterplot(x=site.WOBA,y=sitehat.WOBA)
 sns.scatterplot(x=site.HR,y=sitehat.HR)
 sns.scatterplot(x=site.BIPOUT,y=sitehat.BIPOUT)
-
-
-#%%
-# Build a function to get all of the matrices for any specified year
-def por_analysis(year,alpha=0.001):
-    # Get the relevant events
-    ev = get_events(year)
-    ev = ev[ev.event!='OTHER']
-    ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
-    ev['ind'] = 1.0
-    # Calculate the mean probabilities, ratios, and logratios
-    pbar = ev.event.value_counts(normalize=True).to_frame().transpose()
-    pbar = pbar[['SNGL','XBH','HR','BB','K','BIPOUT']]
-    rbar = pbar / (1-pbar)
-    logrbar = np.log(rbar)
-    # Pivot to get the indicators
-    xbatter = ev.pivot(columns='batter',values='ind').fillna(0)
-    xpitcher = ev.pivot(columns='pitcher',values='ind').fillna(0)
-    xgamesite = ev.pivot(columns='gamesite',values='ind').fillna(0)
-    xtimesthrough = ev.pivot(columns='timesthrough',values='ind').fillna(0)
-    xpitbathand = ev.pivot(columns='pitbathand',values='ind').fillna(0)
-    # Concatenate the indicators for the array
-    xbatter.columns = pd.MultiIndex.from_product([['batter'],xbatter.columns])
-    xpitcher.columns = pd.MultiIndex.from_product([['pitcher'],xpitcher.columns])
-    xgamesite.columns = pd.MultiIndex.from_product([['gamesite'],xgamesite.columns])
-    xtimesthrough.columns = pd.MultiIndex.from_product([['timesthrough'],xtimesthrough.columns])
-    xpitbathand.columns = pd.MultiIndex.from_product([['pitbathand'],xpitbathand.columns])
-    x = pd.concat([xbatter,xpitcher,xgamesite,xtimesthrough,xpitbathand],axis=1)
-    x.columns.names=['split','ID']
-    # Get the Y array (outcomes)
-    yp = ev.pivot(columns='event',values='ind').fillna(0)
-    yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
-    yp = yp.replace(1,1-alpha)
-    yp = yp.replace(0,alpha/5)
-    yr = yp/(1-yp)
-    ylogr = np.log(yr)
-    y = np.subtract(ylogr,logrbar)
-    # Solve the system
-    bhat = pd.DataFrame(la.lstsq(np.matmul(x.transpose().to_numpy(),x.to_numpy()),np.matmul(x.transpose().to_numpy(),y.to_numpy()))[0])
-    bhat.index = x.columns
-    bhat.columns = y.columns
-    rhat = np.exp(np.add(bhat,logrbar))
-    phat = rhat/(1+rhat)
-    return x,y,pbar,phat
-
-
-#%%
-# Try the function out
-x,y,pbar,phat = por_analysis(2013,alpha=0.1)
-
-pd.DataFrame(np.matmul(x['batter'].to_numpy(),phat.loc['batter'].to_numpy()),columns=pbar.columns).mean()
-pbar
-
-pd.DataFrame(np.matmul(x['pitcher'].to_numpy(),phat.loc['pitcher'].to_numpy()),columns=pbar.columns).mean()
-
-pd.DataFrame(np.matmul(x['gamesite'].to_numpy(),phat.loc['gamesite'].to_numpy()),columns=pbar.columns).mean()
-
-pd.DataFrame(np.matmul(x['pitbathand'].to_numpy(),phat.loc['pitbathand'].to_numpy()),columns=pbar.columns).mean()
-
-
 
 
 

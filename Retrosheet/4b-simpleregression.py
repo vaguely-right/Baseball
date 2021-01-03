@@ -3,11 +3,14 @@ import numpy as np
 from tqdm import tqdm
 import numpy.linalg as la
 import seaborn as sns
-from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import Ridge
+from sklearn import linear_model as lm
+import matplotlib as mpl
 
 pd.set_option('display.width',150)
 pd.set_option('display.max_columns',16)
+sns.set_theme(style="whitegrid")
+mpl.rcParams['figure.figsize'] = [10.0,10.0]
+
 #%%
 # Read the constants
 fg = pd.read_csv('fgconstants.csv')
@@ -45,7 +48,7 @@ def get_events(year):
                  11 : 'NOBAT',
                  12 : 'NOBAT',
                  13 : 'NOBAT',
-                 14 : 'BB',p
+                 14 : 'BB',
                  15 : 'OTHER',
                  16 : 'BB',
                  17 : 'OTHER',
@@ -110,11 +113,9 @@ ev = ev[ev.event!='OTHER']
 ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
 ev['ind'] = 1.0
 
-# Calculate the mean probabilities, ratios, and logratios
+# Calculate the mean probabilities
 pbar = ev.event.value_counts(normalize=True).to_frame().transpose()
 pbar = pbar[['SNGL','XBH','HR','BB','K','BIPOUT']]
-rbar = pbar / (1-pbar)
-logrbar = np.log(rbar)
 
 # Pivot to get the indicators
 xbatter = ev.pivot(columns='batter',values='ind').fillna(0)
@@ -136,142 +137,90 @@ x.columns.names=['split','ID']
 # Get the Y array (outcomes)
 yp = ev.pivot(columns='event',values='ind').fillna(0)
 yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
-yp = yp.replace(1,0.999)
-yp = yp.replace(0,0.0002)
-yr = yp/(1-yp)
-ylogr = np.log(yr)
-y = np.subtract(ylogr,logrbar)
-
+y = np.subtract(yp,pbar)
 
 #%%
-# Try a universal tau value
-tau = 1
+# Get some base values to compare to
+outcomes = ['SNGL','XBH','HR','BB','K','BIPOUT']
 
-xt = x * tau
+pbatter = pivot_events(year,'batter')
+pbatter = pbatter[outcomes+['PA']]
+#pbatter.columns = pd.MultiIndex.from_product([['batter'],pbatter.columns])
+#pbatter.index = pd.MultiIndex.from_product([['bat'],pbatter.index])
 
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
+ppitcher = pivot_events(year,'pitcher')
+ppitcher = ppitcher[outcomes+['PA']]
+#ppitcher.columns = pd.MultiIndex.from_product([['pitcher'],ppitcher.columns])
+
+pgamesite = pivot_events(year,'gamesite')
+pgamesite = pgamesite[outcomes+['PA']]
+#pgamesite.columns = pd.MultiIndex.from_product([['gamesite'],pgamesite.columns])
+
+ptimesthrough = pivot_events(year,'timesthrough')
+ptimesthrough = ptimesthrough[outcomes+['PA']]
+
+ppitbathand = pivot_events(year,'pitbathand')
+ppitbathand = ppitbathand[outcomes+['PA']]
+
+p = pd.concat([pbatter,ppitcher,pgamesite,ptimesthrough,ppitbathand],axis=0)
+p.index = x.columns
+
+#%%
+# Try to solve the system using linear algebra
+bhat = np.matmul(np.matmul(la.inv(np.matmul(x.transpose().to_numpy(),x.to_numpy())),x.transpose().to_numpy()),y.to_numpy())
+
+#Try to solve the system using matrix math
+bhat = la.lstsq(np.matmul(x.transpose().to_numpy(),x.to_numpy()),np.matmul(x.transpose().to_numpy(),y.to_numpy()))
 bhat.index = x.columns
 bhat.columns = y.columns
 
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
+# Try ridge regression
+reg = lm.Ridge(alpha=1.0,fit_intercept=False)
+reg.fit(x.to_numpy(),y.to_numpy())
 
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
-
-#%%
-
-phat.groupby('split').mean()
-phat.groupby('split').std()
-phat.loc['batter'].hist()
-phat.loc['gamesite'].hist()
-phat.loc['pitbathand'].hist()
-phat.loc['pitcher'].hist()
-phat.loc['timesthrough'].hist()
-
-#%%
-# Let's look at the variance of the batters, pitchers, etc to try to figure out custom taus
-
-ev.pivot_table(columns='event',index='batter',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).hist()
-
-p = []
-p.append(ev.pivot_table(columns='event',index='batter',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='gamesite',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='pitbathand',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='pitcher',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='timesthrough',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-
-p = pd.concat(p)
-
-p.index = ['batter','gamesite','pitbathand','pitcher','timesthrough']
-p = p[cols]
-
-(phat.groupby('split').var().drop(columns=['SUM']) / p).mean(axis=1)
-
-
-#%%
-# I dunno, just try something
-taubatter = 2.0
-taupitcher = 2.0
-taugamesite = 2.0
-tautimesthrough = 10.0
-taupitbathand = 10.0
-
-
-xt = x
-xt['batter'] = xt['batter'] * taubatter
-xt['pitcher'] = xt['pitcher'] * taupitcher
-xt['gamesite'] = xt['gamesite'] * taugamesite
-xt['timesthrough'] = xt['timesthrough'] * tautimesthrough
-xt['pitbathand'] = xt['pitbathand'] * taupitbathand
-
-
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
+bhat = pd.DataFrame(reg.coef_.transpose())
 bhat.index = x.columns
 bhat.columns = y.columns
 
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
-
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
+phat = np.add(bhat,pbar)
 phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
-
-#%% Try setting one at a time to adjust the sum to 1.0
-taubatter = 3.0
-taupitcher = 2.0
-taugamesite = 1.0
-tautimesthrough = 5.0
-taupitbathand = 1.0
-
-xt = x
-xt['batter'] = xt['batter'] * taubatter
-xt['pitcher'] = xt['pitcher'] * taupitcher
-xt['gamesite'] = xt['gamesite'] * taugamesite
-xt['timesthrough'] = xt['timesthrough'] * tautimesthrough
-xt['pitbathand'] = xt['pitbathand'] * taupitbathand
-
-
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
-bhat.index = x.columns
-bhat.columns = y.columns
-
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
-
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
-# I think varying tau by j (split) might not be the right appoach
-# Maybe vary tau by i (event) would be better
-# This can be done by changing y instead of x
 
 #%%
+p[outcomes].loc['batter'].hist(weights=p.loc['batter'].PA)
+phat.loc['batter'].hist(weights=p.loc['batter'].PA)
+comp = p.merge(phat,how='inner',left_index=True,right_index=True)
+sns.jointplot(x=comp.loc['batter'].SNGL_x,y=comp.loc['batter'].SNGL_y,kind='hex')
+comp.loc['batter'][['HR_x','HR_y']].hist(weights=comp.loc['batter'].PA,bins=50)
+sns.kdeplot(x=comp.loc['batter'].SNGL_x,y=comp.loc['batter'].SNGL_y,weights=comp.loc['batter'].PA,fill=True)
+
+split = 'gamesite'
+p[outcomes].loc[split].hist(weights=p.loc[split].PA)
+phat.loc[split][outcomes].hist(weights=p.loc[split].PA)
+comp = p.merge(phat,how='inner',left_index=True,right_index=True)
+sns.jointplot(x=comp.loc[split].HR_x,y=comp.loc[split].HR_y)
+comp.loc[split][['HR_x','HR_y']].hist(weights=comp.loc[split].PA,bins=50)
+sns.kdeplot(x=comp.loc[split].SNGL_x,y=comp.loc[split].SNGL_y,weights=comp.loc[split].PA,fill=True)
+
+
+p[outcomes].loc['pitcher'].hist(weights=p.loc['pitcher'].PA)
+
+
+
+p[outcomes].loc['gamesite'].hist(weights=p.loc['gamesite'].PA)
+
+
+
+p[outcomes].loc['timesthrough'].hist(weights=p.loc['timesthrough'].PA)
+
+
+
+p[outcomes].loc['pitbathand'].hist(weights=p.loc['pitbathand'].PA)
+
+
+# Check that the mean of the estimates for each split is the same
+p[outcomes].multiply(p.PA,axis=0).groupby('split').sum().divide(p.PA.groupby('split').sum(),axis=0)
+phat[outcomes].multiply(p.PA,axis=0).groupby('split').sum().divide(p.PA.groupby('split').sum(),axis=0)
+
 
 
 

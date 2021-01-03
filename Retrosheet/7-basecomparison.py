@@ -3,8 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import numpy.linalg as la
 import seaborn as sns
-from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import LogisticRegression
 
 pd.set_option('display.width',150)
 pd.set_option('display.max_columns',16)
@@ -45,7 +44,7 @@ def get_events(year):
                  11 : 'NOBAT',
                  12 : 'NOBAT',
                  13 : 'NOBAT',
-                 14 : 'BB',p
+                 14 : 'BB',
                  15 : 'OTHER',
                  16 : 'BB',
                  17 : 'OTHER',
@@ -102,8 +101,6 @@ def pivot_events(year,split,minpa=0):
 
 #%%
 # Get the events for a specified year
-cols = ['SNGL','XBH','HR','BB','K','BIPOUT']
-splits = ['batter','pitcher','gamesite','timesthrough','pitbathand']
 year = 2013
 ev = get_events(year)
 ev = ev[ev.event!='OTHER']
@@ -132,146 +129,108 @@ xpitbathand.columns = pd.MultiIndex.from_product([['pitbathand'],xpitbathand.col
 
 x = pd.concat([xbatter,xpitcher,xgamesite,xtimesthrough,xpitbathand],axis=1)
 x.columns.names=['split','ID']
+#x['intercept','intercept'] = 1.0
 
 # Get the Y array (outcomes)
 yp = ev.pivot(columns='event',values='ind').fillna(0)
 yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
-yp = yp.replace(1,0.999)
-yp = yp.replace(0,0.0002)
+
+#%% Reformat for optimization (skip this)
+yp = yp.replace(1,0.9999)
+yp = yp.replace(0,0.00002)
 yr = yp/(1-yp)
 ylogr = np.log(yr)
-y = np.subtract(ylogr,logrbar)
-
-
-#%%
-# Try a universal tau value
-tau = 1
-
-xt = x * tau
-
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
-bhat.index = x.columns
-bhat.columns = y.columns
-
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
-
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
+y = ylogr
 
 #%%
+# Get some base values to compare to
+outcomes = ['SNGL','XBH','HR','BB','K','BIPOUT']
+year = 2013
+ev = get_events(year)
+ev = ev[ev.event!='OTHER']
+ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
+ev['ind'] = 1.0
 
-phat.groupby('split').mean()
-phat.groupby('split').std()
-phat.loc['batter'].hist()
-phat.loc['gamesite'].hist()
-phat.loc['pitbathand'].hist()
-phat.loc['pitcher'].hist()
-phat.loc['timesthrough'].hist()
+pev = ev.pivot(columns='event',values='ind').fillna(0)
+pev = yp[outcomes]
 
-#%%
-# Let's look at the variance of the batters, pitchers, etc to try to figure out custom taus
+pbar = ev.event.value_counts(normalize=True).to_frame().transpose()
+pbar = pbar[outcomes]
+pbar.columns = pd.MultiIndex.from_product([['means'],pbar.columns])
+pbar.index = [1.0]
+rbar = pbar / (1-pbar)
+logrbar = np.log(rbar)
 
-ev.pivot_table(columns='event',index='batter',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).hist()
+y = ev.pivot(columns='event',values='ind').fillna(0)
+y = yp[outcomes]
 
-p = []
-p.append(ev.pivot_table(columns='event',index='batter',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='gamesite',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='pitbathand',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='pitcher',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='timesthrough',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
+pbatter = pivot_events(year,'batter')
+pbatter = pbatter[outcomes+['PA']]
+#pbatter.columns = pd.MultiIndex.from_product([['batter'],pbatter.columns])
+#pbatter.index = pd.MultiIndex.from_product([['bat'],pbatter.index])
 
-p = pd.concat(p)
+ppitcher = pivot_events(year,'pitcher')
+ppitcher = ppitcher[outcomes+['PA']]
+#ppitcher.columns = pd.MultiIndex.from_product([['pitcher'],ppitcher.columns])
 
-p.index = ['batter','gamesite','pitbathand','pitcher','timesthrough']
-p = p[cols]
+pgamesite = pivot_events(year,'gamesite')
+pgamesite = pgamesite[outcomes+['PA']]
+#pgamesite.columns = pd.MultiIndex.from_product([['gamesite'],pgamesite.columns])
 
-(phat.groupby('split').var().drop(columns=['SUM']) / p).mean(axis=1)
+ptimesthrough = pivot_events(year,'timesthrough')
+ptimesthrough = ptimesthrough[outcomes+['PA']]
 
+ppitbathand = pivot_events(year,'pitbathand')
+ppitbathand = ppitbathand[outcomes+['PA']]
 
-#%%
-# I dunno, just try something
-taubatter = 2.0
-taupitcher = 2.0
-taugamesite = 2.0
-tautimesthrough = 10.0
-taupitbathand = 10.0
+p = pd.concat([pbatter,ppitcher,pgamesite,ptimesthrough,ppitbathand],axis=0)
+p.index = x.columns
 
+#%% Look at some histograms
 
-xt = x
-xt['batter'] = xt['batter'] * taubatter
-xt['pitcher'] = xt['pitcher'] * taupitcher
-xt['gamesite'] = xt['gamesite'] * taugamesite
-xt['timesthrough'] = xt['timesthrough'] * tautimesthrough
-xt['pitbathand'] = xt['pitbathand'] * taupitbathand
+for s in splits:
+    p[outcomes].loc[s].hist(weights=p.loc[s].PA)
 
+p[outcomes].loc['batter'].hist(weights=p.loc['batter'].PA)
+p[outcomes].loc['pitcher'].hist(weights=p.loc['pitcher'].PA)
+p[outcomes].loc['gamesite'].hist(weights=p.loc['gamesite'].PA)
+p[outcomes].loc['timesthrough'].hist(weights=p.loc['timesthrough'].PA)
+p[outcomes].loc['pitbathand'].hist(weights=p.loc['pitbathand'].PA)
 
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
-bhat.index = x.columns
-bhat.columns = y.columns
-
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
-
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
-
-#%% Try setting one at a time to adjust the sum to 1.0
-taubatter = 3.0
-taupitcher = 2.0
-taugamesite = 1.0
-tautimesthrough = 5.0
-taupitbathand = 1.0
-
-xt = x
-xt['batter'] = xt['batter'] * taubatter
-xt['pitcher'] = xt['pitcher'] * taupitcher
-xt['gamesite'] = xt['gamesite'] * taugamesite
-xt['timesthrough'] = xt['timesthrough'] * tautimesthrough
-xt['pitbathand'] = xt['pitbathand'] * taupitbathand
-
-
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
-bhat.index = x.columns
-bhat.columns = y.columns
-
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
-
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
-# I think varying tau by j (split) might not be the right appoach
-# Maybe vary tau by i (event) would be better
-# This can be done by changing y instead of x
+phat[outcomes].loc['batter'].hist(weights=p.loc['batter'].PA)
 
 #%%
+#INCOMPLETE
+
+poutcomes = pd.concat([ev,pev],axis=1)\
+            .merge(pbatter,left_on='batter',right_index=True,how='left',suffixes=('ev','bat'))
+
+poutcomes = ev.merge(pbatter,left_on='batter',right_index=True,how='left',suffixes=('ev','bat'))\
+        .merge(ppitcher,left_on='pitcher',right_index=True,how='left')\
+        .merge(pgamesite,left_on='gamesite',right_index=True,how='left')\
+        .merge(ptimesthrough,left_on='timesthrough',right_index=True,how='left')\
+        .merge(ppitbathand,left_on='pitbathand',right_index=True,how='left')
+
+pd.MultiIndex.from_product([['batter','pitcher','gamesite','timesthough','pitbathand'],outcomes],names=['split','outcome'])
+
+
+ev.columns = pd.MultiIndex.from_product([['events'],ev.columns])
+
+
+
+ev[['batter']].merge(pbatter,how='left',left_on='batter',right_index=True).drop('batter',axis=1)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

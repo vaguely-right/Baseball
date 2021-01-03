@@ -3,8 +3,8 @@ import numpy as np
 from tqdm import tqdm
 import numpy.linalg as la
 import seaborn as sns
-from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import LogisticRegression
+import seaborn as sns
 
 pd.set_option('display.width',150)
 pd.set_option('display.max_columns',16)
@@ -45,7 +45,7 @@ def get_events(year):
                  11 : 'NOBAT',
                  12 : 'NOBAT',
                  13 : 'NOBAT',
-                 14 : 'BB',p
+                 14 : 'BB',
                  15 : 'OTHER',
                  16 : 'BB',
                  17 : 'OTHER',
@@ -102,9 +102,9 @@ def pivot_events(year,split,minpa=0):
 
 #%%
 # Get the events for a specified year
+year = 2013
 cols = ['SNGL','XBH','HR','BB','K','BIPOUT']
 splits = ['batter','pitcher','gamesite','timesthrough','pitbathand']
-year = 2013
 ev = get_events(year)
 ev = ev[ev.event!='OTHER']
 ev = ev[['batter','pitcher','gamesite','timesthrough','pitbathand','event']]
@@ -132,146 +132,169 @@ xpitbathand.columns = pd.MultiIndex.from_product([['pitbathand'],xpitbathand.col
 
 x = pd.concat([xbatter,xpitcher,xgamesite,xtimesthrough,xpitbathand],axis=1)
 x.columns.names=['split','ID']
-
-# Get the Y array (outcomes)
-yp = ev.pivot(columns='event',values='ind').fillna(0)
-yp = yp[['SNGL','XBH','HR','BB','K','BIPOUT']]
-yp = yp.replace(1,0.999)
-yp = yp.replace(0,0.0002)
-yr = yp/(1-yp)
-ylogr = np.log(yr)
-y = np.subtract(ylogr,logrbar)
+#x['intercept','intercept'] = 1.0
 
 
-#%%
-# Try a universal tau value
-tau = 1
+#%% Try categorical logistic regression with just two predictors
+reg = LogisticRegression()
 
-xt = x * tau
+X = x[['batter','pitcher']].to_numpy()
+Y = ev[['event']]
 
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
-bhat.index = x.columns
-bhat.columns = y.columns
+reg.fit(X,Y)
 
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
 
-rhat.groupby('split').mean()
+#%% Get the means in logit, probit, and probability space
+bbar = pd.DataFrame(reg.intercept_).transpose()
+bbar.columns = reg.classes_.transpose()
+bbar.index = ['mean']
 
-# Okay, now get the original probabilities
+rbar = np.exp(bbar)
+
+pbar = rbar/(1+rbar)
+
+pbar['SUM'] = pbar.sum(axis=1)
+pbar
+
+#%% ALTERNATE: Go the other way with it, start with the "true" pbar
+pbar = ev.event.value_counts(normalize=True).to_frame().transpose()[['BB','BIPOUT','HR','K','SNGL','XBH']]
+
+rbar = pbar / (1-pbar)
+
+bbar = np.log(rbar)
+
+#%% Transform the estimates
+bhat = pd.DataFrame(reg.coef_.transpose())
+
+bhat.index = x[['batter','pitcher']].columns
+bhat.columns = reg.classes_
+
+rhat = np.exp(np.add(bhat,bbar))
+
 phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
 
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
+phat['SUM'] = phat.sum(axis=1)
 
 
 #%%
-
-phat.groupby('split').mean()
-phat.groupby('split').std()
-phat.loc['batter'].hist()
-phat.loc['gamesite'].hist()
-phat.loc['pitbathand'].hist()
-phat.loc['pitcher'].hist()
-phat.loc['timesthrough'].hist()
+s='batter'
+o='HR'
+sns.scatterplot(x=p[o].loc[s],y=phat[o].loc[s],hue=p.loc[s].PA)
+p[o].loc[s].hist(weights=p.loc[s].PA)
+phat[o].loc[s].hist(weights=p.loc[s].PA)
 
 #%%
-# Let's look at the variance of the batters, pitchers, etc to try to figure out custom taus
-
-ev.pivot_table(columns='event',index='batter',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).hist()
-
-p = []
-p.append(ev.pivot_table(columns='event',index='batter',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='gamesite',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='pitbathand',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='pitcher',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-p.append(ev.pivot_table(columns='event',index='timesthrough',values='ind',aggfunc=len).apply(lambda x: x/x.sum(),axis=1).var().to_frame().transpose())
-
-p = pd.concat(p)
-
-p.index = ['batter','gamesite','pitbathand','pitcher','timesthrough']
-p = p[cols]
-
-(phat.groupby('split').var().drop(columns=['SUM']) / p).mean(axis=1)
 
 
 #%%
-# I dunno, just try something
-taubatter = 2.0
-taupitcher = 2.0
-taugamesite = 2.0
-tautimesthrough = 10.0
-taupitbathand = 10.0
+#%%
 
 
-xt = x
-xt['batter'] = xt['batter'] * taubatter
-xt['pitcher'] = xt['pitcher'] * taupitcher
-xt['gamesite'] = xt['gamesite'] * taugamesite
-xt['timesthrough'] = xt['timesthrough'] * tautimesthrough
-xt['pitbathand'] = xt['pitbathand'] * taupitbathand
+#%% Now try categorical logistic regression for all five predictors
 
+#reg = LogisticRegression()
 
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
+#reg = LogisticRegression(class_weight=truepbar.transpose().event.to_dict())
+
+#reg = LogisticRegression(class_weight='balanced')
+
+reg = LogisticRegression(class_weight=truepbar.transpose().event.apply(lambda x: np.sqrt(x/(1-x))).to_dict())
+
+X = x.to_numpy()
+Y = ev[['event']]
+
+reg.fit(X,Y)
+
+#%% Get the means in logit, probit, and probability space
+bbar = pd.DataFrame(reg.intercept_).transpose()
+bbar.columns = reg.classes_.transpose()
+bbar.index = ['mean']
+
+rbar = np.exp(bbar)
+
+pbar = rbar/(1+rbar)
+
+#pbar['SUM'] = pbar.sum(axis=1)
+#pbar
+
+#%% ALTERNATE: Go the other way with it, start with the "true" pbar
+truepbar = ev.event.value_counts(normalize=True).to_frame().transpose()[['BB','BIPOUT','HR','K','SNGL','XBH']]
+
+rbar = truepbar / (1-truepbar)
+
+bbar = np.log(rbar)
+
+#%% Transform the estimates
+bhat = pd.DataFrame(reg.coef_.transpose())
+
 bhat.index = x.columns
-bhat.columns = y.columns
+bhat.columns = reg.classes_
 
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
+rhat = np.exp(np.add(bhat,bbar))
 
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
 phat = rhat/(1+rhat)
+
+#phat['SUM'] = phat.sum(axis=1)
+
+#SUM is way off now, normalize
+
+#phat = np.divide(phat,np.sum(phat,axis=1).to_frame())
+
+#phat.sum(axis=1)
+#%%
 phat.groupby('split').mean()
-phat.loc['batter'].hist()
+pbar
+truepbar
+sns.scatterplot(truepbar.transpose().event.to_numpy(),np.divide(pbar,truepbar).transpose()['mean'].to_numpy())
 
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
+phat['SUM'] = phat.sum(axis=1)
 
-
-#%% Try setting one at a time to adjust the sum to 1.0
-taubatter = 3.0
-taupitcher = 2.0
-taugamesite = 1.0
-tautimesthrough = 5.0
-taupitbathand = 1.0
-
-xt = x
-xt['batter'] = xt['batter'] * taubatter
-xt['pitcher'] = xt['pitcher'] * taupitcher
-xt['gamesite'] = xt['gamesite'] * taugamesite
-xt['timesthrough'] = xt['timesthrough'] * tautimesthrough
-xt['pitbathand'] = xt['pitbathand'] * taupitbathand
-
-
-# Solve the system
-bhat = pd.DataFrame(la.lstsq(np.matmul(xt.transpose().to_numpy(),xt.to_numpy()),np.matmul(xt.transpose().to_numpy(),y.to_numpy()))[0])
-bhat.index = x.columns
-bhat.columns = y.columns
-
-# Take the bhat estimate and put it back in probability space
-rhat = np.exp(np.add(bhat,logrbar))
-
-rhat.groupby('split').mean()
-
-# Okay, now get the original probabilities
-phat = rhat/(1+rhat)
-phat.groupby('split').mean()
-phat.loc['batter'].hist()
-
-phat['SUM'] = np.sum(phat,axis=1)
-phat.groupby('split').mean()
-
-# I think varying tau by j (split) might not be the right appoach
-# Maybe vary tau by i (event) would be better
-# This can be done by changing y instead of x
 
 #%%
+# Get some base values to compare to
+pbatter = pivot_events(year,'batter')
+pbatter = pbatter[cols+['PA']]
+#pbatter.columns = pd.MultiIndex.from_product([['batter'],pbatter.columns])
+#pbatter.index = pd.MultiIndex.from_product([['bat'],pbatter.index])
+
+ppitcher = pivot_events(year,'pitcher')
+ppitcher = ppitcher[cols+['PA']]
+#ppitcher.columns = pd.MultiIndex.from_product([['pitcher'],ppitcher.columns])
+
+pgamesite = pivot_events(year,'gamesite')
+pgamesite = pgamesite[cols+['PA']]
+#pgamesite.columns = pd.MultiIndex.from_product([['gamesite'],pgamesite.columns])
+
+ptimesthrough = pivot_events(year,'timesthrough')
+ptimesthrough = ptimesthrough[cols+['PA']]
+
+ppitbathand = pivot_events(year,'pitbathand')
+ppitbathand = ppitbathand[cols+['PA']]
+
+p = pd.concat([pbatter,ppitcher,pgamesite,ptimesthrough,ppitbathand],axis=0)
+p.index = x.columns
+
+#%%
+s='pitbathand'
+o='K'
+sns.scatterplot(x=p[o].loc[s],y=phat[o].loc[s],hue=p.loc[s].PA)
+sns.scatterplot(x=p[cols].loc[s],y=phat[cols].loc[s])
+p[o].loc[s].hist(weights=p.loc[s].PA)
+phat[o].loc[s].hist(weights=p.loc[s].PA)
+
+
+plong = p.melt(ignore_index=False).reset_index()
+phatlong = phat.melt(ignore_index=False).rename(columns={'variable':'event'}).reset_index()
+
+
+comp = plong.merge(phatlong,how='inner',on=['split','ID','event']).merge(p.PA,left_on=['split','ID'],right_index=True)
+sns.scatterplot(x='value_x',y='value_y',data=comp,hue='PA')
+phat
+
+
+
+
+
 
 
 
